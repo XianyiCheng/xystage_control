@@ -33,12 +33,12 @@ volatile int position_M2 = 0;
 #include "Encoders.h"
 
 const float bit2Newton = 0.1463; // 0.1463N/bit of current sensor reading
-const float bitoffset = 743;
+const float bitoffset = 751;
 
 const float pos_Pgain = 0.02; // pos:unit(0-590), output:force(Newton) 
 const float pos_Dgain = 0.005;
-const float F_Pgain = 20/52;
-const float F_Igain = 4/52;
+const float F_Pgain = 1000/52;
+const float F_Igain = 1000/52;
 
 int stiff_mode = 0;
  // filters out changes faster that 5 Hz.
@@ -89,16 +89,21 @@ void loop() {
   //setPWMDuty_M1(30);
   //delay(500);
   
-  PDpos(0.02,0.5, 300, 300, 10000);
+  //PDpos(0.02,0.5, 300, 300, 10000);
+
   /*
   setMotorPower_M1(0);
   setMotorPower_M2(0);
-  int current1 = analogRead(CSpin_M1);
-  int current2 = analogRead(CSpin_M2);// - bitoffset;
+  int current1 = lowpassFilter.input(analogRead(CSpin_M1));
+  int current2 = lowpassFilter.input(analogRead(CSpin_M2));// - bitoffset;
   Serial.print(current1,DEC);
   Serial.print("\t");
   Serial.println(current2,DEC);
   */
+  //PIDpos(0.01, 0.1, 0.01, 300, 300, 10000);
+
+  //PDposPIforce(300, 300, 0, 0, 52*0.02, 52*0.5, F_Igain, F_Pgain, 10000);
+  PIforce(0,0,F_Igain,F_Pgain);
 }
 
 void Pos_gainScheduling(int r1, int r2, int thr){
@@ -293,19 +298,21 @@ void PIDpos(float Pgain, float Dgain, float Igain, int setpos_M1, int setpos_M2,
     // PI force/current control
     //PIforceControl_2D(force_Igain, force_Pgain, force_M1, force_M2, 10);
     //Serial.println(elapsed_time);
-    /*
+    
     if (oldpos_M1!=position_M1 || oldpos_M2!=position_M2){
       oldpos_M1=position_M1;
       oldpos_M2 = position_M2;
       Serial.print(oldpos_M1,DEC);
       Serial.print("\t");
-      Serial.print(oldpos_M2,DEC);
+      Serial.println(oldpos_M2,DEC);
+      /*
       Serial.print("\t");
       Serial.print(52*force_M1,DEC);
       Serial.print("\t");
       Serial.println(52*force_M2,DEC);
+      */
     }
-    */
+    
   }
 }
 
@@ -493,8 +500,146 @@ void PIforceControl_2D(float F_Igain, float F_Pgain, float set_force1, float set
 }
 
 
+void PDposPIforce(int setpos_M1, int setpos_M2, float setforce1, float setforce2, float Pgain, float Dgain, float force_Igain, float force_Pgain, int time){
+  
+  unsigned long old_time = 0;
+  unsigned long new_time = 0;
+  unsigned long elapsed_time = 0;
+  int err_M1, pre_err_M1, err_M2, pre_err_M2;
+  int oldpos_M1 = 0;
+  int oldpos_M2 = 0;
+  float p1_Pterm = 0;
+  float p1_Dterm = 0;
+  float p2_Pterm = 0;
+  float p2_Dterm = 0;
+  
+  float err1, err2;
+  float f1_Iterm = 0;
+  float f1_Pterm = 0;
+  float f2_Iterm = 0;
+  float f2_Pterm = 0;
+  int current1 = 0;
+  int current2 = 0;
+  
+  float output1 = 0;
+  float output2 = 0;
+  
+  unsigned long start_time = micros();
+  new_time = micros();
+  while((new_time - start_time)< time*1e6 ){
+    // PD position control
+    new_time = micros();
+    elapsed_time = new_time - old_time;
+    old_time = new_time;
+    
+    err_M1 = setpos_M1 - position_M1;
+    err_M2 = setpos_M2 - position_M2;
+    
+    p1_Pterm = Pgain*err_M1;
+    p1_Dterm = Dgain*(err_M1 - pre_err_M1)/elapsed_time;
+    
+    p2_Pterm = Pgain*err_M2;
+    p2_Dterm = Dgain*(err_M2 - pre_err_M2)/elapsed_time;
+    
+    pre_err_M1 = err_M1;
+    pre_err_M2 = err_M2;
+    
+    // PI force 
+    //current1 = lowpassFilter.input(analogRead(CSpin_M1)) - bitoffset;
+    //current2 = lowpassFilter.input(analogRead(CSpin_M2)) - bitoffset;
 
+    current1 = analogRead(CSpin_M1) - bitoffset;
+    current2 = analogRead(CSpin_M2) - bitoffset;
+    
+    err1= -setforce1 + current1*bit2Newton;
+    err2= -setforce2 + current2*bit2Newton;
+    
+    f1_Iterm = f1_Iterm + F_Igain*(new_time - old_time)*1e-6*err1;
+    f1_Pterm = F_Pgain*err1;
+    output1 = p1_Pterm + p1_Dterm + f1_Iterm + f1_Pterm + setforce1; 
+    
+    f2_Iterm = f2_Iterm + F_Igain*(new_time - old_time)*1e-6*err2;
+    f2_Pterm = F_Pgain*err2;
+    output2 = p2_Pterm + p2_Dterm + f2_Iterm + f2_Pterm + setforce2;  
+  
+    setMotorPower_M1((int)output1);
+    setMotorPower_M2((int)output2);
+    
+    if (oldpos_M1!=position_M1 || oldpos_M2!=position_M2){
+      oldpos_M1=position_M1;
+      oldpos_M2 = position_M2;
+      Serial.print(oldpos_M1,DEC);
+      Serial.print("\t");
+      Serial.println(oldpos_M2,DEC);
+    
+    }
+  }
+}
 
+void PIforce(float setforce1, float setforce2, float force_Igain, float force_Pgain){
+  
+  unsigned long old_time = 0;
+  unsigned long new_time = 0;
+  unsigned long elapsed_time = 0;
+  int err_M1, pre_err_M1, err_M2, pre_err_M2;
+  int oldpos_M1 = 0;
+  int oldpos_M2 = 0;
+  float p1_Pterm = 0;
+  float p1_Dterm = 0;
+  float p2_Pterm = 0;
+  float p2_Dterm = 0;
+  
+  float err1, err2;
+  float f1_Iterm = 0;
+  float f1_Pterm = 0;
+  float f2_Iterm = 0;
+  float f2_Pterm = 0;
+  int current1 = 0;
+  int current2 = 0;
+  
+  float output1 = 0;
+  float output2 = 0;
+  
+  unsigned long start_time = micros();
+  new_time = micros();
+  while(1){
+    // PD position control
+    new_time = micros();
+    elapsed_time = new_time - old_time;
+    old_time = new_time;
+    
+    // PI force 
+    current1 = lowpassFilter.input(analogRead(CSpin_M1)) - bitoffset;
+    current2 = lowpassFilter.input(analogRead(CSpin_M2)) - bitoffset;
+
+    //current1 = analogRead(CSpin_M1) - bitoffset;
+    //current2 = analogRead(CSpin_M2) - bitoffset;
+    
+    err1= -setforce1 + current1*bit2Newton;
+    err2= -setforce2 + current2*bit2Newton;
+    
+    f1_Iterm = f1_Iterm + F_Igain*(new_time - old_time)*1e-6*err1;
+    f1_Pterm = F_Pgain*err1;
+    output1 = p1_Pterm + p1_Dterm + f1_Iterm + f1_Pterm + setforce1; 
+    
+    f2_Iterm = f2_Iterm + F_Igain*(new_time - old_time)*1e-6*err2;
+    f2_Pterm = F_Pgain*err2;
+    output2 = p2_Pterm + p2_Dterm + f2_Iterm + f2_Pterm + setforce2;  
+  
+    setMotorPower_M1((int)output1);
+    setMotorPower_M2((int)output2);
+    /*
+    if (oldpos_M1!=position_M1 || oldpos_M2!=position_M2){
+      oldpos_M1=position_M1;
+      oldpos_M2 = position_M2;
+     */
+      Serial.print(current1,DEC);
+      Serial.print("\t");
+      Serial.println(current2,DEC);
+    
+    //}
+  }
+}
 
 
 
