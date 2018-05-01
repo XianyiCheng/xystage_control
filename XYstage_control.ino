@@ -36,7 +36,7 @@ const float F_Igain = 1000/52;
 
 int stiff_mode = 0;
  // filters out changes faster that 2 Hz.
-float filterFrequency = 1;  
+float filterFrequency = 0.5;  
 
 // create a one pole (RC) lowpass filter
 FilterOnePole lowpassFilter( LOWPASS, filterFrequency );  
@@ -103,10 +103,10 @@ void loop() {
   //int current1 = lowpassFilter.input(analogRead(CSpin_M1));
   //Serial.println(current1,DEC);
   
-  //PIDpos(0.01, 0.003, 0.01, 300, 300, 10000);
-  //PIDposPIDforce(300, 300, 0, 0,52*0.02, 52*0.005, 52*0.01, 0,0,0);
+  //PIDpos(0.03, 0.005, 0.01, 300, 300, 10000);
+  //PIDposPIDforce(300, 300, 0, 0,52*0.03, 52*0.005, 52*0.01, 0,0,0);
 
-  PIDposPIDforce(300, 300, 0, 0, 52*0.03, 52*0.005, 52*0.01, -400, -30, -200);
+  PIDposPIDforce(300, 300, 0, 0, 52*0.03, 52*0.005, 52*0.01, -300, -30, -100);
 }
 
 void Pos_gainScheduling(int r1, int r2, int thr){
@@ -300,13 +300,17 @@ void PIDpos(float Pgain, float Dgain, float Igain, int setpos_M1, int setpos_M2,
     //PIforceControl_2D(force_Igain, force_Pgain, force_M1, force_M2, 10);
     //Serial.println(elapsed_time);
     
-    if (oldpos_M1!=position_M1 || oldpos_M2!=position_M2){
+//    if (oldpos_M1!=position_M1 || oldpos_M2!=position_M2){
       oldpos_M1=position_M1;
       oldpos_M2 = position_M2;
-      Serial.print(oldpos_M1,DEC);
-      Serial.print("\t");
-      Serial.println(oldpos_M2,DEC);
-    }
+//      Serial.print(oldpos_M1,DEC);
+//      Serial.print("\t");
+//      Serial.println(oldpos_M2,DEC);
+    Serial.print(analogRead(CSpin_M1),DEC);
+    Serial.print("\t");
+    Serial.println(lowpassFilter.input(analogRead(CSpin_M1)),DEC);
+
+//    }
     
   }
 }
@@ -519,8 +523,11 @@ void PIDposPIDforce(int setpos_M1, int setpos_M2, float setforce1, float setforc
   float f2_Pterm = 0;
   float f1_Dterm = 0;
   float f2_Dterm = 0;
-  int current1 = 0;
-  int current2 = 0;
+  
+  float current1 = 0;
+  float current2 = 0;
+  float raw_current1 = 0;
+  float raw_current2 = 0;
   
   float output1 = 0;
   float output2 = 0;
@@ -555,8 +562,13 @@ void PIDposPIDforce(int setpos_M1, int setpos_M2, float setforce1, float setforc
     ep2_pre = ep2;
     
     // PI force 
-    current1 = lowpassFilter.input(analogRead(CSpin_M1)) - bitoffset + 12;
-    current2 = lowpassFilter.input(analogRead(CSpin_M2)) - bitoffset + 12;
+    raw_current1 = analogRead(CSpin_M1);
+    raw_current2 = analogRead(CSpin_M2);
+
+    current1 = lowpassFilter.input(raw_current1) - bitoffset + 50;
+    current2 = lowpassFilter.input(raw_current2);
+
+ 
 
     //current1 = analogRead(CSpin_M1) - bitoffset;
     //current2 = analogRead(CSpin_M2) - bitoffset;
@@ -590,24 +602,25 @@ void PIDposPIDforce(int setpos_M1, int setpos_M2, float setforce1, float setforc
     setMotorPower_M2((int)output2);
 
   
-    //if (oldpos_M1!=position_M1 || oldpos_M2!=position_M2){
+    if (oldpos_M1!=position_M1 || oldpos_M2!=position_M2){
       oldpos_M1=position_M1;
       oldpos_M2 = position_M2;
+//      
+//      Serial.print(raw_current2,DEC);
+//      Serial.print("\t");
+//      Serial.println(current2,DEC);
       
-      Serial.print(current1,DEC);
+
+    Serial.print(current1, DEC);
+     Serial.print("\t");
+    Serial.print(oldpos_M1,DEC);
       Serial.print("\t");
-      /*
-      Serial.print(current2,DEC);
-      Serial.println("\t");
-      */
-      Serial.print(oldpos_M1,DEC);
-      Serial.print("\t");
-      Serial.println(oldpos_M2,DEC);
-    //}
+     Serial.println(oldpos_M2,DEC);
+}
     
-    //Serial.print(analogRead(CSpin_M1),DEC);
-    //Serial.print("\t");
-    //Serial.println(lowpassFilter.input(analogRead(CSpin_M1)),DEC);
+//    Serial.print(analogRead(CSpin_M2),DEC);
+//    Serial.print("\t");
+//    Serial.println(lowpassFilter.input(analogRead(CSpin_M2)),DEC);
    
   }
 }
